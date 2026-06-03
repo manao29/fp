@@ -121,16 +121,28 @@ async def _receive_wecom_message(
     body = await request.body()
     body_str = body.decode("utf-8") if isinstance(body, bytes) else str(body)
 
-    # 从 XML 中提取 <Encrypt> 标签内容
-    import re
-    encrypt_match = re.search(r"<Encrypt><!\[CDATA\[(.*?)\]\]></Encrypt>", body_str)
-    if not encrypt_match:
-        encrypt_match = re.search(r"<Encrypt>(.*?)</Encrypt>", body_str)
-    if not encrypt_match:
-        logger.error("WeCom POST body has no <Encrypt> tag: %s", body_str[:500])
-        raise HTTPException(400, "Missing Encrypt tag")
+    encrypted = ""
 
-    encrypted = encrypt_match.group(1)
+    # 尝试 JSON 格式: {"encrypt":"..."}
+    try:
+        body_json = json.loads(body_str)
+        if isinstance(body_json, dict) and "encrypt" in body_json:
+            encrypted = body_json["encrypt"]
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # 尝试 XML 格式: <Encrypt><![CDATA[...]]></Encrypt>
+    if not encrypted:
+        import re
+        encrypt_match = re.search(r"<Encrypt><!\[CDATA\[(.*?)\]\]></Encrypt>", body_str)
+        if not encrypt_match:
+            encrypt_match = re.search(r"<Encrypt>(.*?)</Encrypt>", body_str)
+        if encrypt_match:
+            encrypted = encrypt_match.group(1)
+
+    if not encrypted:
+        logger.error("WeCom POST body has no encrypt field: %s", body_str[:500])
+        raise HTTPException(400, "Missing encrypt data")
 
     # 解密
     try:
@@ -139,8 +151,36 @@ async def _receive_wecom_message(
         logger.error("WeCom decrypt failed: %s, encrypted_len=%d", e, len(encrypted))
         raise HTTPException(400, "Decryption failed")
 
-    # 解析消息
-    msg = parse_callback_xml(decrypted.encode("utf-8") if isinstance(decrypted, str) else decrypted)
+    # 解析消息 — 支持 XML 和 JSON 两种格式
+    decrypted_str = decrypted.encode("utf-8") if isinstance(decrypted, str) else decrypted
+    msg = None
+
+    # 尝试 JSON 格式
+    try:
+        payload = json.loads(decrypted_str)
+        if isinstance(payload, dict):
+            msg_type = payload.get("MsgType") or payload.get("msgtype") or "text"
+            msg = parse_callback_xml(
+                f"<xml><MsgType>{msg_type}</MsgType>"
+                f"<Content><![CDATA[{payload.get('Text', {}).get('Content', '') if isinstance(payload.get('Text'), dict) else payload.get('Content', payload.get('text', ''))}]]></Content>"
+                f"<FromUserName>{payload.get('FromUserName', payload.get('fromUserName', ''))}</FromUserName>"
+                f"<ChatId>{payload.get('ChatId', payload.get('chatId', ''))}</ChatId>"
+                f"<ChatType>{payload.get('ChatType', payload.get('chatType', 'group'))}</ChatType>"
+                f"<MsgId>{payload.get('MsgId', payload.get('msgId', ''))}</MsgId>"
+                f"<FromName>{payload.get('FromName', payload.get('fromName', ''))}</FromName>"
+                f"<PicUrl>{payload.get('PicUrl', payload.get('picUrl', ''))}</PicUrl>"
+                f"<MediaId>{payload.get('MediaId', payload.get('mediaId', ''))}</MediaId>"
+                f"<FileName>{payload.get('FileName', payload.get('fileName', ''))}</FileName>"
+                f"<Event>{payload.get('Event', payload.get('event', ''))}</Event>"
+                f"<AgentID>{payload.get('AgentID', payload.get('agentID', ''))}</AgentID>"
+                f"</xml>".encode()
+            )
+    except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
+        pass
+
+    # 尝试 XML 格式
+    if msg is None:
+        msg = parse_callback_xml(decrypted_str)
     logger.info(
         "WeCom msg: id=%s type=%s chat=%s user=%s content=%s",
         msg.msg_id, msg.msg_type, msg.chat_id, msg.from_user, msg.content[:100] if msg.content else ""
