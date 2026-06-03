@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>管理后台 — Invoicing Assistant</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f6fa; color: #2d3436; }
+  .header { background: #1a73e8; color: #fff; padding: 16px 24px; }
+  .header h1 { font-size: 18px; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  .filters { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  .filters select, .filters input, .filters button {
+    padding: 8px 12px; border: 1px solid #dfe6e9; border-radius: 6px; font-size: 14px;
+  }
+  .filters button { background: #1a73e8; color: #fff; border: none; cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #f1f2f6; font-size: 13px; }
+  th { background: #f8f9fa; font-weight: 600; color: #636e72; }
+  tr:hover { background: #f8f9ff; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .badge-pending { background: #fff3cd; color: #856404; }
+  .badge-confirmed { background: #d4edda; color: #155724; }
+  .badge-exported { background: #cce5ff; color: #004085; }
+  .btn-sm { padding: 4px 12px; border: none; border-radius: 4px; font-size: 12px; cursor: pointer; }
+  .btn-export { background: #00b894; color: #fff; }
+  .btn-view { background: #1a73e8; color: #fff; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
+  .stat-card { background: #fff; border-radius: 8px; padding: 16px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .stat-card .num { font-size: 28px; font-weight: 700; }
+  .stat-card .label { font-size: 13px; color: #636e72; margin-top: 4px; }
+  .loading { text-align: center; padding: 40px; color: #636e72; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>开票助手 — 管理后台</h1>
+</div>
+<div class="container">
+  <div class="stats" id="stats"></div>
+  <div class="filters">
+    <select id="filterStatus" onchange="loadData()">
+      <option value="">全部状态</option>
+      <option value="pending">待确认</option>
+      <option value="confirmed">已确认</option>
+      <option value="exported">已导出</option>
+    </select>
+    <button onclick="exportExcel()">导出 Excel</button>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th><th>群ID</th><th>买方</th><th>税号</th>
+        <th>项目</th><th>数量</th><th>金额</th><th>状态</th><th>时间</th><th>操作</th>
+      </tr>
+    </thead>
+    <tbody id="tableBody">
+      <tr><td colspan="10" class="loading">加载中...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+const API_BASE = window.location.origin;
+
+async function loadData() {
+  const status = document.getElementById('filterStatus').value;
+  const params = new URLSearchParams();
+  if (status) params.set('status', status);
+  params.set('limit', '200');
+
+  const resp = await fetch(`${API_BASE}/api/invoice-requests?${params}`);
+  const data = await resp.json();
+
+  // Stats
+  const stats = {};
+  data.forEach(r => { stats[r.status] = (stats[r.status] || 0) + 1; });
+  document.getElementById('stats').innerHTML = `
+    <div class="stat-card"><div class="num">${data.length}</div><div class="label">总计</div></div>
+    <div class="stat-card"><div class="num" style="color:#856404">${stats.pending || 0}</div><div class="label">待确认</div></div>
+    <div class="stat-card"><div class="num" style="color:#155724">${stats.confirmed || 0}</div><div class="label">已确认</div></div>
+    <div class="stat-card"><div class="num" style="color:#004085">${stats.exported || 0}</div><div class="label">已导出</div></div>
+  `;
+
+  const tbody = document.getElementById('tableBody');
+  if (!data.length) {
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px">暂无数据</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = data.map(r => `
+    <tr>
+      <td><code>${(r.id || '').substring(0, 8)}</code></td>
+      <td>${(r.group_id || '').substring(0, 8)}</td>
+      <td>${r.company_name || '-'}</td>
+      <td>${r.tax_id || '-'}</td>
+      <td>${r.item_name || '-'}</td>
+      <td>${r.quantity || '-'}${r.unit || ''}</td>
+      <td style="color:#e17055;font-weight:600">¥${r.amount || '-'}</td>
+      <td><span class="badge badge-${r.status}">${r.status === 'pending' ? '待确认' : r.status === 'confirmed' ? '已确认' : r.status}</span></td>
+      <td>${(r.created_at || '').substring(0, 10)}</td>
+      <td>
+        <button class="btn-sm btn-view" onclick="viewRequest('${r.id}')">查看</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function viewRequest(id) {
+  window.open(`${API_BASE}/submit?req_id=${id}`, '_blank');
+}
+
+async function exportExcel() {
+  const status = document.getElementById('filterStatus').value;
+  const params = new URLSearchParams();
+  if (status) params.set('status', status);
+  window.open(`${API_BASE}/api/export-excel?${params}`, '_blank');
+}
+
+loadData();
+</script>
+</body>
+</html>

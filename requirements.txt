@@ -1,0 +1,40 @@
+# Invoicing Assistant
+# 企业微信群聊开票助手 — 解耦架构
+
+# --- 核心依赖 ---
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+httpx>=0.27.0
+pydantic>=2.0
+pydantic-settings>=2.0
+python-multipart>=0.0.9
+
+# --- 数据库 ---
+aiosqlite>=0.20.0
+sqlalchemy[asyncio]>=2.0
+
+# --- WeCom 加解密 (企业微信回调) ---
+pycryptodome>=3.20.0
+xmltodict>=0.13.0
+
+# --- AI / LLM ---
+openai>=1.50.0          # OpenAI 兼容接口 (Qwen/DeepSeek)
+# transformers>=4.40.0  # 可选: 本地 Qwen NER (按需取消注释)
+# torch>=2.0            # 可选: 本地推理
+
+# --- OCR ---
+paddleocr>=2.8.0
+paddlepaddle>=3.0.0
+
+# --- Excel / PDF ---
+openpyxl>=3.1.0
+xlrd>=2.0.0
+PyPDF2>=3.0.0
+pdfplumber>=0.10.0
+
+# --- 自然语言处理 ---
+jieba>=0.42.0
+
+# --- 工具 ---
+python-dotenv>=1.0.0
+loguru>=0.7.0

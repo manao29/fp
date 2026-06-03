@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>开票信息核对 — Invoicing Assistant</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f5f6fa; color: #2d3436; min-height: 100vh;
+  }
+  .container { max-width: 640px; margin: 0 auto; padding: 20px; }
+  .card {
+    background: #fff; border-radius: 12px; padding: 24px;
+    margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  h1 { font-size: 20px; margin-bottom: 20px; text-align: center; color: #1a73e8; }
+  .field { margin-bottom: 16px; }
+  .field label {
+    display: block; font-size: 13px; color: #636e72; margin-bottom: 4px;
+    font-weight: 500;
+  }
+  .field input, .field select {
+    width: 100%; padding: 10px 12px; border: 1px solid #dfe6e9;
+    border-radius: 8px; font-size: 15px; transition: border-color 0.2s;
+  }
+  .field input:focus, .field select:focus {
+    outline: none; border-color: #1a73e8; box-shadow: 0 0 0 3px rgba(26,115,232,0.1);
+  }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .status-badge {
+    display: inline-block; padding: 4px 12px; border-radius: 20px;
+    font-size: 12px; font-weight: 600;
+  }
+  .status-pending { background: #fff3cd; color: #856404; }
+  .status-confirmed { background: #d4edda; color: #155724; }
+  .btn {
+    display: block; width: 100%; padding: 12px; border: none;
+    border-radius: 8px; font-size: 16px; font-weight: 600;
+    cursor: pointer; transition: opacity 0.2s;
+  }
+  .btn:hover { opacity: 0.9; }
+  .btn-primary { background: #1a73e8; color: #fff; }
+  .btn-success { background: #00b894; color: #fff; }
+  .btn-danger { background: #d63031; color: #fff; }
+  .btn-group { display: flex; gap: 12px; margin-top: 16px; }
+  .btn-group .btn { flex: 1; }
+  .missing { color: #d63031; font-weight: 600; }
+  .complete { color: #00b894; font-weight: 600; }
+  .summary {
+    background: #f0f4ff; border-radius: 8px; padding: 16px;
+    margin-bottom: 16px;
+  }
+  .summary-item {
+    display: flex; justify-content: space-between; padding: 6px 0;
+    border-bottom: 1px solid #e0e5ec;
+  }
+  .summary-item:last-child { border-bottom: none; }
+  .summary-item .label { color: #636e72; }
+  .summary-item .value { font-weight: 500; }
+  .loading { text-align: center; padding: 40px; color: #636e72; }
+  .error { background: #ffeaa7; color: #d63031; padding: 12px; border-radius: 8px; margin-bottom: 16px; }
+  .toast {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+    background: #00b894; color: #fff; padding: 12px 24px;
+    border-radius: 8px; font-weight: 500; z-index: 1000;
+    animation: fadeInOut 3s forwards;
+  }
+  @keyframes fadeInOut {
+    0% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+    15% { opacity: 1; transform: translateX(-50%) translateY(0); }
+    85% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>开票信息核对</h1>
+  <div id="app">
+    <div class="loading">加载中...</div>
+  </div>
+</div>
+
+<script>
+const API_BASE = window.location.origin;
+const urlParams = new URLSearchParams(window.location.search);
+const reqId = urlParams.get('req_id') || '';
+
+let currentData = {};
+
+async function loadRequest() {
+  if (!reqId) {
+    document.getElementById('app').innerHTML = '<div class="error">未指定开票单ID</div>';
+    return;
+  }
+  try {
+    const resp = await fetch(`${API_BASE}/api/invoice-requests/${reqId}`);
+    if (!resp.ok) throw new Error('开票单不存在');
+    const data = await resp.json();
+    currentData = data;
+    render(data);
+  } catch (e) {
+    document.getElementById('app').innerHTML = `<div class="error">${e.message}</div>`;
+  }
+}
+
+function render(data) {
+  const isPerson = data.subject_type === 'person';
+  const statusClass = data.status === 'confirmed' ? 'status-confirmed' : 'status-pending';
+  const statusLabel = data.status === 'confirmed' ? '已确认' : '待确认';
+
+  document.getElementById('app').innerHTML = `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div>
+          <strong>开票单</strong> ${data.id.substring(0, 8)}... <br>
+          <span class="status-badge ${statusClass}">${statusLabel}</span>
+        </div>
+      </div>
+
+      <div class="summary">
+        <div class="summary-item">
+          <span class="label">销售方</span>
+          <span class="value">${data.seller_company_name || '待绑定'}</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">${isPerson ? '个人名称' : '购买方抬头'}</span>
+          <span class="value">${data.company_name || '待补充'}</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">税号</span>
+          <span class="value">${isPerson ? '个人无需提供' : (data.tax_id || '待补充')}</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">项目</span>
+          <span class="value">${data.item_name || '待补充'}</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">数量</span>
+          <span class="value">${data.quantity || ''} ${data.unit || ''}</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">总金额(含税)</span>
+          <span class="value" style="font-size:18px;color:#e17055">¥${data.amount || '--'}</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">发票类型</span>
+          <span class="value">${data.invoice_type || '增值税电子普通发票'}</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">邮箱</span>
+          <span class="value">${data.buyer_email || '未提供'}</span>
+        </div>
+      </div>
+
+      <h3 style="margin:16px 0 12px;font-size:15px">修改信息</h3>
+      <div class="field">
+        <label>开票对象</label>
+        <select id="subject_type" onchange="toggleSubjectType()">
+          <option value="company" ${!isPerson ? 'selected' : ''}>公司</option>
+          <option value="person" ${isPerson ? 'selected' : ''}>个人</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>${isPerson ? '个人名称' : '购买方抬头'}</label>
+        <input id="company_name" value="${data.company_name || ''}" />
+      </div>
+      <div class="field" id="tax_id_field" style="${isPerson ? 'display:none' : ''}">
+        <label>税号</label>
+        <input id="tax_id" value="${data.tax_id || ''}" />
+      </div>
+      <div class="field">
+        <label>项目</label>
+        <input id="item_name" value="${data.item_name || ''}" />
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>数量</label>
+          <input id="quantity" value="${data.quantity || ''}" type="number" step="any" />
+        </div>
+        <div class="field">
+          <label>单位</label>
+          <input id="unit" value="${data.unit || ''}" />
+        </div>
+      </div>
+      <div class="field">
+        <label>总金额(含税)</label>
+        <input id="amount" value="${data.amount || ''}" type="number" step="0.01" />
+      </div>
+      <div class="field">
+        <label>邮箱 (接收电子发票)</label>
+        <input id="buyer_email" value="${data.buyer_email || ''}" />
+      </div>
+
+      <div class="btn-group">
+        <button class="btn btn-primary" onclick="saveChanges()">保存修改</button>
+      </div>
+    </div>
+  `;
+}
+
+function toggleSubjectType() {
+  const isPerson = document.getElementById('subject_type').value === 'person';
+  document.getElementById('tax_id_field').style.display = isPerson ? 'none' : '';
+}
+
+async function saveChanges() {
+  const isPerson = document.getElementById('subject_type').value === 'person';
+  const updateData = {
+    subject_type: isPerson ? 'person' : 'company',
+    company_name: document.getElementById('company_name').value,
+    tax_id: isPerson ? '' : document.getElementById('tax_id').value,
+    item_name: document.getElementById('item_name').value,
+    quantity: document.getElementById('quantity').value,
+    unit: document.getElementById('unit').value,
+    amount: document.getElementById('amount').value,
+    buyer_email: document.getElementById('buyer_email').value,
+  };
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/invoice-requests/${reqId}/update`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(updateData),
+    });
+    if (!resp.ok) throw new Error('保存失败');
+    showToast('保存成功');
+    loadRequest();
+  } catch (e) {
+    showToast('保存失败: ' + e.message, true);
+  }
+}
+
+function showToast(msg, isError = false) {
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.style.background = isError ? '#d63031' : '#00b894';
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3000);
+}
+
+loadRequest();
+</script>
+</body>
+</html>

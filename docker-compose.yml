@@ -1,0 +1,19 @@
+version: "3.8"
+
+services:
+  invoicing-assistant:
+    build: .
+    container_name: invoicing-assistant
+    restart: always
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./templates:/app/templates
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

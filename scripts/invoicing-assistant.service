@@ -1,0 +1,15 @@
+[Unit]
+Description=Invoicing Assistant - 企业微信群聊开票助手
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/invoicing-assistant
+EnvironmentFile=/opt/invoicing-assistant/.env
+ExecStart=/opt/invoicing-assistant/venv/bin/python -m src.app
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
