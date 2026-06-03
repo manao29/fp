@@ -119,12 +119,24 @@ async def _receive_wecom_message(
     )
 
     body = await request.body()
+    body_str = body.decode("utf-8") if isinstance(body, bytes) else str(body)
+
+    # 从 XML 中提取 <Encrypt> 标签内容
+    import re
+    encrypt_match = re.search(r"<Encrypt><!\[CDATA\[(.*?)\]\]></Encrypt>", body_str)
+    if not encrypt_match:
+        encrypt_match = re.search(r"<Encrypt>(.*?)</Encrypt>", body_str)
+    if not encrypt_match:
+        logger.error("WeCom POST body has no <Encrypt> tag: %s", body_str[:500])
+        raise HTTPException(400, "Missing Encrypt tag")
+
+    encrypted = encrypt_match.group(1)
 
     # 解密
     try:
-        decrypted = crypto.decrypt(body.decode("utf-8") if isinstance(body, bytes) else body)
+        decrypted = crypto.decrypt(encrypted)
     except Exception as e:
-        logger.error("WeCom decrypt failed: %s", e)
+        logger.error("WeCom decrypt failed: %s, encrypted_len=%d", e, len(encrypted))
         raise HTTPException(400, "Decryption failed")
 
     # 解析消息
@@ -146,6 +158,32 @@ async def _receive_wecom_message(
     bg.add_task(_process_wecom_message, msg)
 
     return PlainTextResponse("")
+
+
+# 兼容旧版群机器人回调路径
+@router.get("/api/wx/robot_callback")
+async def verify_robot_url_legacy(
+    msg_signature: str = Query(...),
+    timestamp: str = Query(...),
+    nonce: str = Query(...),
+    echostr: str = Query(...),
+    v: str = Query(default=""),
+):
+    """企业微信群机器人回调 URL 验证 — 兼容旧版"""
+    return await _verify_wecom_url(msg_signature, timestamp, nonce, echostr)
+
+
+@router.post("/api/wx/robot_callback")
+async def receive_robot_message_legacy(
+    request: Request,
+    bg: BackgroundTasks,
+    msg_signature: str = Query(...),
+    timestamp: str = Query(...),
+    nonce: str = Query(...),
+    v: str = Query(default=""),
+):
+    """接收企业微信群机器人回调消息 — 兼容旧版"""
+    return await _receive_wecom_message(request, bg, msg_signature, timestamp, nonce)
 
 
 @router.get("/api/wecom/callback")

@@ -52,7 +52,7 @@ class WeComCrypto:
         content_len = struct.unpack("!I", plain[16:20])[0]
         xml_content = plain[20:20 + content_len].decode("utf-8")
         received_corp_id = plain[20 + content_len:].decode("utf-8")
-        if received_corp_id != self.corp_id:
+        if received_corp_id and received_corp_id != self.corp_id:
             logger.warning("CorpId mismatch: expected=%s received=%s", self.corp_id, received_corp_id)
         return xml_content
 
