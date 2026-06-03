@@ -159,20 +159,47 @@ async def _receive_wecom_message(
     try:
         payload = json.loads(decrypted_str)
         if isinstance(payload, dict):
+            logger.info("WeCom decrypted JSON keys: %s", list(payload.keys()))
+            logger.info("WeCom decrypted FULL payload: %s", json.dumps(payload, ensure_ascii=False)[:2000])
             msg_type = payload.get("MsgType") or payload.get("msgtype") or "text"
+            # 尝试多种可能的 chatId 字段名
+            chat_id = (
+                payload.get("ChatId") or payload.get("chatId") or
+                payload.get("chatid") or payload.get("ChatID") or
+                payload.get("RoomId") or payload.get("roomId") or ""
+            )
+            from_user = (
+                payload.get("FromUserName") or payload.get("fromUserName") or
+                payload.get("FromUserId") or payload.get("fromUserId") or
+                payload.get("UserID") or payload.get("userId") or ""
+            )
+            from_name = payload.get("FromName") or payload.get("fromName") or ""
+            content = ""
+            text_obj = payload.get("Text") or payload.get("text") or {}
+            if isinstance(text_obj, dict):
+                content = text_obj.get("Content") or text_obj.get("content") or ""
+            if not content:
+                content = payload.get("Content") or payload.get("content") or ""
+            msg_id = payload.get("MsgId") or payload.get("msgId") or ""
+            pic_url = payload.get("PicUrl") or payload.get("picUrl") or ""
+            media_id = payload.get("MediaId") or payload.get("mediaId") or ""
+            file_name = payload.get("FileName") or payload.get("fileName") or ""
+            event = payload.get("Event") or payload.get("event") or ""
+            agent_id = payload.get("AgentID") or payload.get("agentID") or ""
+
             msg = parse_callback_xml(
                 f"<xml><MsgType>{msg_type}</MsgType>"
-                f"<Content><![CDATA[{payload.get('Text', {}).get('Content', '') if isinstance(payload.get('Text'), dict) else payload.get('Content', payload.get('text', ''))}]]></Content>"
-                f"<FromUserName>{payload.get('FromUserName', payload.get('fromUserName', ''))}</FromUserName>"
-                f"<ChatId>{payload.get('ChatId', payload.get('chatId', ''))}</ChatId>"
-                f"<ChatType>{payload.get('ChatType', payload.get('chatType', 'group'))}</ChatType>"
-                f"<MsgId>{payload.get('MsgId', payload.get('msgId', ''))}</MsgId>"
-                f"<FromName>{payload.get('FromName', payload.get('fromName', ''))}</FromName>"
-                f"<PicUrl>{payload.get('PicUrl', payload.get('picUrl', ''))}</PicUrl>"
-                f"<MediaId>{payload.get('MediaId', payload.get('mediaId', ''))}</MediaId>"
-                f"<FileName>{payload.get('FileName', payload.get('fileName', ''))}</FileName>"
-                f"<Event>{payload.get('Event', payload.get('event', ''))}</Event>"
-                f"<AgentID>{payload.get('AgentID', payload.get('agentID', ''))}</AgentID>"
+                f"<Content><![CDATA[{content}]]></Content>"
+                f"<FromUserName>{from_user}</FromUserName>"
+                f"<FromName>{from_name}</FromName>"
+                f"<ChatId>{chat_id}</ChatId>"
+                f"<ChatType>group</ChatType>"
+                f"<MsgId>{msg_id}</MsgId>"
+                f"<PicUrl>{pic_url}</PicUrl>"
+                f"<MediaId>{media_id}</MediaId>"
+                f"<FileName>{file_name}</FileName>"
+                f"<Event>{event}</Event>"
+                f"<AgentID>{agent_id}</AgentID>"
                 f"</xml>".encode()
             )
     except (json.JSONDecodeError, ValueError, UnicodeDecodeError):
