@@ -53,14 +53,39 @@ def get_wecom_client() -> WeComClient:
 # 企业微信回调
 # ====================================================================
 
-@router.get("/api/wecom/callback")
-async def verify_wecom_url(
+# 兼容旧版回调路径 (invoice.subcraft.cn 现有配置)
+@router.get("/api/wx/kf_callback")
+async def verify_wecom_url_legacy(
     msg_signature: str = Query(...),
     timestamp: str = Query(...),
     nonce: str = Query(...),
     echostr: str = Query(...),
+    v: str = Query(default=""),  # 兼容旧版 ?v=2 参数
 ):
-    """企业微信回调 URL 验证 (GET)"""
+    """企业微信回调 URL 验证 — 兼容旧版路径"""
+    return await _verify_wecom_url(msg_signature, timestamp, nonce, echostr)
+
+
+@router.post("/api/wx/kf_callback")
+async def receive_wecom_message_legacy(
+    request: Request,
+    bg: BackgroundTasks,
+    msg_signature: str = Query(...),
+    timestamp: str = Query(...),
+    nonce: str = Query(...),
+    v: str = Query(default=""),
+):
+    """接收企业微信回调消息 — 兼容旧版路径"""
+    return await _receive_wecom_message(request, bg, msg_signature, timestamp, nonce)
+
+
+async def _verify_wecom_url(
+    msg_signature: str,
+    timestamp: str,
+    nonce: str,
+    echostr: str,
+):
+    """企业微信回调 URL 验证 (GET) — 内部实现"""
     settings = get_settings()
     if not settings.callback_ready:
         raise HTTPException(503, "WeCom callback not configured")
@@ -78,15 +103,14 @@ async def verify_wecom_url(
     return PlainTextResponse(decrypted)
 
 
-@router.post("/api/wecom/callback")
-async def receive_wecom_message(
+async def _receive_wecom_message(
     request: Request,
     bg: BackgroundTasks,
-    msg_signature: str = Query(...),
-    timestamp: str = Query(...),
-    nonce: str = Query(...),
+    msg_signature: str,
+    timestamp: str,
+    nonce: str,
 ):
-    """接收企业微信回调消息 (POST)"""
+    """接收企业微信回调消息 (POST) — 内部实现"""
     settings = get_settings()
     crypto = WeComCrypto(
         settings.wecom_token,
@@ -114,7 +138,7 @@ async def receive_wecom_message(
     if msg.is_group and msg.chat_id:
         pass
     elif msg.chat_type == "single" and msg.from_user:
-        pass  # 1v1 也处理（可选，先支持群聊）
+        pass  # 1v1 也处理
     else:
         return PlainTextResponse("")
 
@@ -122,6 +146,29 @@ async def receive_wecom_message(
     bg.add_task(_process_wecom_message, msg)
 
     return PlainTextResponse("")
+
+
+@router.get("/api/wecom/callback")
+async def verify_wecom_url(
+    msg_signature: str = Query(...),
+    timestamp: str = Query(...),
+    nonce: str = Query(...),
+    echostr: str = Query(...),
+):
+    """企业微信回调 URL 验证 — 新版路径"""
+    return await _verify_wecom_url(msg_signature, timestamp, nonce, echostr)
+
+
+@router.post("/api/wecom/callback")
+async def receive_wecom_message(
+    request: Request,
+    bg: BackgroundTasks,
+    msg_signature: str = Query(...),
+    timestamp: str = Query(...),
+    nonce: str = Query(...),
+):
+    """接收企业微信回调消息 — 新版路径"""
+    return await _receive_wecom_message(request, bg, msg_signature, timestamp, nonce)
 
 
 async def _process_wecom_message(msg):
